@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import re
 import pandas as pd
 from Author import Author
 from Document import Document, HackerNewsDocument, ArxivDocument, DocumentFactory
@@ -27,6 +28,13 @@ class Corpus:
         self.id2doc: dict[int, Document] = id2doc if id2doc is not None else {}
         self.ndoc: int = ndoc if ndoc else len(self.id2doc)
         self.naut: int = naut if naut else len(self.authors)
+        self._chaine_complete: str | None = None
+
+    def _get_chaine_complete(self) -> str:
+        """Construit et met en cache la chaîne concaténant l'intégralité des textes du corpus (une seule fois au premier appel)."""
+        if self._chaine_complete is None:
+            self._chaine_complete = " ".join(doc.texte for doc in self.id2doc.values() if doc.texte)
+        return self._chaine_complete
 
     def add(self, doc: Document, doc_id: int | None = None) -> None:
         """Ajoute un document au corpus et met à jour les dictionnaires id2doc et authors"""
@@ -37,6 +45,7 @@ class Corpus:
 
         self.id2doc[doc_id] = doc
         self.ndoc = len(self.id2doc)
+        self._chaine_complete = None
 
         author_name = doc.auteur
         if author_name not in self.authors:
@@ -128,6 +137,7 @@ class Corpus:
         self.authors.clear()
         self.ndoc = 0
         self.naut = 0
+        self._chaine_complete = None
 
         for idx, row in df.iterrows():
             doc_id = int(row["id"]) if "id" in row and pd.notna(row["id"]) else int(idx)
@@ -141,6 +151,42 @@ class Corpus:
             date_obj = self._parse_date(raw_date)
             doc = DocumentFactory.create_document( doc_type=origine, titre=titre, auteur=auteur, date=date_obj, url=url, texte=texte)
             self.add(doc, doc_id=doc_id)
+
+    def search(self, mot_clef: str, taille_contexte: int = 30) -> list[str]:
+        """Retourne les passages des documents contenant le mot-clef entré en paramètre (TD6 - 1.1)."""
+        if not mot_clef:
+            return []
+        chaine = self._get_chaine_complete()
+        passages: list[str] = []
+        for match in re.finditer(mot_clef, chaine, flags=re.IGNORECASE):
+            debut = max(0, match.start() - taille_contexte)
+            fin = min(len(chaine), match.end() + taille_contexte)
+            passages.append(chaine[debut:fin])
+        return passages
+
+    def concorde(self, expression: str, taille_contexte: int = 30) -> pd.DataFrame:
+        """Construit un concordancier pour une expression donnée et retourne un DataFrame pandas (TD6 - 1.2)."""
+        colonnes = ["contexte gauche", "motif trouvé", "contexte droit"]
+        if not expression:
+            return pd.DataFrame(columns=colonnes)
+
+        chaine = self._get_chaine_complete()
+        lignes = []
+        for match in re.finditer(expression, chaine, flags=re.IGNORECASE):
+            debut_gauche = max(0, match.start() - taille_contexte)
+            fin_droit = min(len(chaine), match.end() + taille_contexte)
+
+            gauche = "..." + chaine[debut_gauche:match.start()]
+            motif = match.group(0)
+            droit = chaine[match.end():fin_droit] + "..."
+
+            lignes.append({
+                "contexte gauche": gauche,
+                "motif trouvé": motif,
+                "contexte droit": droit,
+            })
+
+        return pd.DataFrame(lignes, columns=colonnes)
 
     @staticmethod
     def _parse_date(date_val: str) -> datetime:

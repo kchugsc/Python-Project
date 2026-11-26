@@ -317,7 +317,20 @@ def main() -> None:
     print()
     corpus.afficher_par_titre(n=5)
 
+    # --- TD 6 - Partie 1 : Expressions régulières ---
+    mot_recherche = "climate"
+    print(f"\n--- TD 6 (1.1) : Recherche du mot-clef '{mot_recherche}' via corpus.search() ---")
+    passages = corpus.search(mot_recherche)
+    print(f"{len(passages)} passage(s) trouvé(s) (affichage des 5 premiers) :")
+    for i, passage in enumerate(passages[:5], 1):
+        print(f"  {i}. ...{passage}...")
+
+    print(f"\n--- TD 6 (1.2) : Concordancier pour '{mot_recherche}' via corpus.concorde() ---")
+    df_concorde = corpus.concorde(mot_recherche, taille_contexte=25)
+    print(df_concorde.head(10).to_string(index=False))
+
 
 if __name__ == "__main__":
     main()
+
 
