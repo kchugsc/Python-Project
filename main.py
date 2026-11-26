@@ -1,3 +1,4 @@
+from __future__ import annotations
 from datetime import datetime
 import html
 import json
@@ -329,8 +330,24 @@ def main() -> None:
     df_concorde = corpus.concorde(mot_recherche, taille_contexte=25)
     print(df_concorde.head(10).to_string(index=False))
 
+    # --- TD 6 - Partie 2 : Statistiques textuelles ---
+
+    # 2.1 : Test de supprimer_balises sur un texte contenant un lien HTML
+    exemple_html = 'Voici un <a href="https://example.com" rel="nofollow">lien</a> et du <i>texte en italique</i>.'
+    print(f"\n--- TD 6 (2.1) : Test de supprimer_balises ---")
+    print(f"  Avant : {exemple_html}")
+    print(f"  Après : {Corpus.supprimer_balises(exemple_html)}")
+
+    # 2.2 : Test de nettoyer_texte
+    exemple_sale = 'Hello World! <p>Some HTML</p>\nLine2... 42 tests & résultats.'
+    print(f"\n--- TD 6 (2.2) : Test de nettoyer_texte ---")
+    print(f"  Avant : {exemple_sale!r}")
+    print(f"  Après : {Corpus.nettoyer_texte(exemple_sale)!r}")
+
+    # 2.3 / 2.4 / 2.5 : Statistiques complètes via corpus.stats()
+    print(f"\n--- TD 6 (2.3-2.5) : Statistiques du corpus via corpus.stats() ---")
+    corpus.stats(n=10)
+
 
 if __name__ == "__main__":
     main()
-
-

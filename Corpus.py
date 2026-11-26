@@ -1,9 +1,33 @@
+from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import re
+from collections import Counter
 import pandas as pd
 from Author import Author
 from Document import Document, HackerNewsDocument, ArxivDocument, DocumentFactory
+
+
+_RE_BALISES = re.compile(r"<[^>]+>")
+_RE_NON_LETTRES = re.compile(r"[^a-zà-ÿ\s]")
+
+
+def supprimer_balises(texte: str) -> str:
+    """Remplace les balises HTML par des espaces (TD6 - 2.1)."""
+    if not texte:
+        return ""
+    return _RE_BALISES.sub(" ", texte)
+
+
+def nettoyer_texte(texte: str) -> str:
+    """Nettoie un texte : balises HTML, minuscules, sauts de ligne, ponctuation et chiffres (TD6 - 2.2)."""
+    if not texte:
+        return ""
+    texte = supprimer_balises(texte)
+    texte = texte.lower()
+    texte = texte.replace("\n", " ")
+    texte = _RE_NON_LETTRES.sub(" ", texte)
+    return " ".join(texte.split())
 
 
 def singleton(cls):
@@ -15,6 +39,11 @@ def singleton(cls):
             instances[cls] = cls(*args, **kwargs)
         return instances[cls]
 
+    # Propage les attributs et méthodes statiques vers la fonction décorée
+    for attr in dir(cls):
+        if not attr.startswith("__"):
+            setattr(get_instance, attr, getattr(cls, attr))
+
     return get_instance
 
 
@@ -22,13 +51,18 @@ def singleton(cls):
 class Corpus:
     """Représentation d'un corpus de documents et d'auteurs (Singleton)"""
 
-    def __init__(self,nom: str, authors: dict[str, Author] | None = None, id2doc: dict[int, Document] | None = None, ndoc: int = 0, naut: int = 0):
+    supprimer_balises = staticmethod(supprimer_balises)
+    nettoyer_texte = staticmethod(nettoyer_texte)
+
+    def __init__(self, nom: str, authors: dict[str, Author] | None = None, id2doc: dict[int, Document] | None = None, ndoc: int = 0, naut: int = 0):
         self.nom = nom
         self.authors: dict[str, Author] = authors if authors is not None else {}
         self.id2doc: dict[int, Document] = id2doc if id2doc is not None else {}
         self.ndoc: int = ndoc if ndoc else len(self.id2doc)
         self.naut: int = naut if naut else len(self.authors)
         self._chaine_complete: str | None = None
+        self.vocabulaire: dict[str, int] = {}
+        self.freq: pd.DataFrame | None = None
 
     def _get_chaine_complete(self) -> str:
         """Construit et met en cache la chaîne concaténant l'intégralité des textes du corpus (une seule fois au premier appel)."""
@@ -46,6 +80,8 @@ class Corpus:
         self.id2doc[doc_id] = doc
         self.ndoc = len(self.id2doc)
         self._chaine_complete = None
+        self.vocabulaire = {}
+        self.freq = None
 
         author_name = doc.auteur
         if author_name not in self.authors:
@@ -138,6 +174,8 @@ class Corpus:
         self.ndoc = 0
         self.naut = 0
         self._chaine_complete = None
+        self.vocabulaire = {}
+        self.freq = None
 
         for idx, row in df.iterrows():
             doc_id = int(row["id"]) if "id" in row and pd.notna(row["id"]) else int(idx)
@@ -149,7 +187,7 @@ class Corpus:
             origine = str(row["origine"]) if "origine" in row and pd.notna(row["origine"]) else ""
 
             date_obj = self._parse_date(raw_date)
-            doc = DocumentFactory.create_document( doc_type=origine, titre=titre, auteur=auteur, date=date_obj, url=url, texte=texte)
+            doc = DocumentFactory.create_document(doc_type=origine, titre=titre, auteur=auteur, date=date_obj, url=url, texte=texte)
             self.add(doc, doc_id=doc_id)
 
     def search(self, mot_clef: str, taille_contexte: int = 30) -> list[str]:
@@ -187,6 +225,53 @@ class Corpus:
             })
 
         return pd.DataFrame(lignes, columns=colonnes)
+
+    def construire_vocabulaire(self) -> dict[str, int]:
+        """Construit le vocabulaire du corpus dans un dictionnaire via un set (TD6 - 2.3)."""
+        ensemble_mots: set[str] = set()
+        for doc in self.id2doc.values():
+            texte_nettoye = nettoyer_texte(doc.texte)
+            mots = texte_nettoye.split()
+            ensemble_mots.update(mots)
+
+        self.vocabulaire = {mot: idx for idx, mot in enumerate(sorted(ensemble_mots))}
+        return self.vocabulaire
+
+    def construire_tableau_frequence(self) -> pd.DataFrame:
+        """Construit le tableau freq (TF et DF) en un seul parcours du corpus (TD6 - 2.4 & 2.5)."""
+        if not self.vocabulaire:
+            self.construire_vocabulaire()
+
+        tf_counter = Counter()
+        df_counter = Counter()
+
+        for doc in self.id2doc.values():
+            texte_nettoye = nettoyer_texte(doc.texte)
+            mots = texte_nettoye.split()
+            tf_counter.update(mots)
+            df_counter.update(set(mots))
+
+        mots_vocab = sorted(self.vocabulaire.keys())
+        self.freq = pd.DataFrame({
+            "term_frequency": [tf_counter[m] for m in mots_vocab],
+            "document_frequency": [df_counter[m] for m in mots_vocab],
+        }, index=pd.Index(mots_vocab, name="mot"))
+
+        self.freq = self.freq.sort_values(by="term_frequency", ascending=False)
+        return self.freq
+
+    def stats(self, n: int = 10) -> pd.DataFrame:
+        """Affiche le nombre de mots différents et les n mots les plus fréquents (TD6 - Partie 2)."""
+        if self.freq is None:
+            self.construire_tableau_frequence()
+
+        nb_mots_differents = len(self.freq)
+        print(f"--- Statistiques du corpus '{self.nom}' ---")
+        print(f"Nombre de mots différents : {nb_mots_differents}")
+        print(f"Les {n} mots les plus fréquents :")
+        top_n = self.freq.head(n)
+        print(top_n.to_string())
+        return top_n
 
     @staticmethod
     def _parse_date(date_val: str) -> datetime:

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from Document import Document
 
 class Author:
